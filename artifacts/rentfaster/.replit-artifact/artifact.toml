@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "RentFaster Ghana"
+description = "A Ghana-first long-term rental marketplace where tenants find verified homes, landlords manage listings and payouts, and admins approve inventory."
+version = "1.0.0"
+id = "artifacts/rentfaster"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24109
+
+[services.development]
+run = "pnpm --filter @workspace/rentfaster run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/rentfaster", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/rentfaster/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24109"
+BASE_PATH = "/"

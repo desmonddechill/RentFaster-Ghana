@@ -1,15 +1,16 @@
-# [Project name]
+# RentFaster Ghana
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Ghana-first long-term rental marketplace for verified homes, landlords, tenants, and admin approval.
 
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/rentfaster run dev` — run the RentFaster web app
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `MAPBOX_ACCESS_TOKEN`, `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY`
 
 ## Stack
 
@@ -19,26 +20,35 @@ _Replace the heading above with the project's name, and this line with one sente
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
+- Frontend: React + Vite artifact with Wouter routing and generated React Query API hooks
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/rentfaster/src/App.tsx` — marketplace, listing, auth, tenant, landlord, and admin routes
+- `artifacts/rentfaster/src/index.css` — RentFaster theme tokens and responsive styling
+- `artifacts/api-server/src/routes/rentfaster.ts` — listing, inquiry, dashboard, review, and Paystack initialization routes
+- `lib/db/src/schema/rentfaster.ts` — marketplace tables and GHS financial fields
+- `lib/api-spec/openapi.yaml` — source of truth for API contracts and generated hooks
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- All financial fields are derived from monthly rent at a fixed 10% service fee: 90% landlord payout, 10% platform.
+- New listings always enter `pending`; only approved listings are returned to public listing searches.
+- Video URL and at least three photo URLs are required by the create-listing contract.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Tenants can browse Ghana listings, filter by city/type/budget, open detail pages, message landlords, use WhatsApp, and start a Paystack rent flow. Landlords can submit properties and view portfolio/inquiry/earnings surfaces. Admins can review listing status and marketplace totals.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Currency is GH₵ only and all marketplace financial summaries must show monthly and yearly GHS totals.
+- Ghana launch cities include Accra, Kumasi, Takoradi, Tamale, Cape Coast, and other cities as inventory grows.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Run `pnpm --filter @workspace/api-spec run codegen` after changing `lib/api-spec/openapi.yaml`.
+- Public listing queries intentionally default to `status=approved`.
 
 ## Pointers
 

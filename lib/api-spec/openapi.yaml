@@ -10,6 +10,14 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: listings
+    description: Verified Ghana rental listings
+  - name: dashboards
+    description: Role-based marketplace summaries
+  - name: inquiries
+    description: Tenant to landlord conversations
+  - name: payments
+    description: Paystack subscription flows
 paths:
   /healthz:
     get:
@@ -24,6 +32,169 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /listings:
+    get:
+      operationId: listListings
+      tags: [listings]
+      summary: Search approved listings
+      parameters:
+        - { name: city, in: query, required: false, schema: { type: string } }
+        - { name: propertyType, in: query, required: false, schema: { type: string } }
+        - { name: minPrice, in: query, required: false, schema: { type: number } }
+        - { name: maxPrice, in: query, required: false, schema: { type: number } }
+        - { name: bedrooms, in: query, required: false, schema: { type: integer } }
+        - { name: furnished, in: query, required: false, schema: { type: boolean } }
+        - { name: petFriendly, in: query, required: false, schema: { type: boolean } }
+        - { name: billsIncluded, in: query, required: false, schema: { type: boolean } }
+        - { name: status, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Listings
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Listing" }
+    post:
+      operationId: createListing
+      tags: [listings]
+      summary: Submit a property for approval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ListingInput" }
+      responses:
+        "201":
+          description: Created listing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Listing" }
+  /listings/featured:
+    get:
+      operationId: getFeaturedListings
+      tags: [listings]
+      summary: Get featured verified listings
+      responses:
+        "200":
+          description: Featured listings
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Listing" }
+  /listings/{listingId}:
+    get:
+      operationId: getListing
+      tags: [listings]
+      summary: Get a listing detail
+      parameters:
+        - name: listingId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Listing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ListingDetail" }
+    patch:
+      operationId: updateListing
+      tags: [listings]
+      summary: Update a landlord listing
+      parameters:
+        - name: listingId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ListingUpdate" }
+      responses:
+        "200":
+          description: Updated listing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Listing" }
+  /inquiries:
+    get:
+      operationId: listInquiries
+      tags: [inquiries]
+      parameters:
+        - { name: role, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Inquiries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Inquiry" }
+    post:
+      operationId: createInquiry
+      tags: [inquiries]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InquiryInput" }
+      responses:
+        "201":
+          description: Created inquiry
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Inquiry" }
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboards]
+      parameters:
+        - { name: role, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DashboardSummary" }
+  /admin/listings/{listingId}/review:
+    post:
+      operationId: reviewListing
+      tags: [listings]
+      parameters:
+        - name: listingId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReviewDecision" }
+      responses:
+        "200":
+          description: Reviewed listing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Listing" }
+  /payments/subscribe:
+    post:
+      operationId: createSubscription
+      tags: [payments]
+      summary: Start a Paystack recurring subscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SubscriptionInput" }
+      responses:
+        "201":
+          description: Subscription checkout
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubscriptionResult" }
 components:
   schemas:
     HealthStatus:
@@ -33,4 +204,142 @@ components:
           type: string
       required:
         - status
+    Listing:
+      type: object
+      required: [id, landlordId, title, city, monthlyRentGhs, commissionRate, landlordPayoutMonthlyGhs, yearlyRentTotalGhs, yearlyCommissionTotalGhs, yearlyLandlordTotalGhs, propertyType, bedrooms, bathrooms, furnished, petFriendly, billsIncluded, photos, videoUrl, amenities, status, createdAt]
+      properties:
+        id: { type: string }
+        landlordId: { type: string }
+        title: { type: string }
+        description: { type: string }
+        address: { type: string }
+        city: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+        monthlyRentGhs: { type: number }
+        commissionRate: { type: number }
+        landlordPayoutMonthlyGhs: { type: number }
+        yearlyRentTotalGhs: { type: number }
+        yearlyCommissionTotalGhs: { type: number }
+        yearlyLandlordTotalGhs: { type: number }
+        propertyType: { type: string }
+        bedrooms: { type: integer }
+        bathrooms: { type: integer }
+        furnished: { type: boolean }
+        petFriendly: { type: boolean }
+        billsIncluded: { type: boolean }
+        photos:
+          type: array
+          items: { type: string }
+        videoUrl: { type: string }
+        amenities:
+          type: array
+          items: { type: string }
+        status: { type: string }
+        featured: { type: boolean }
+        landlordName: { type: string }
+        landlordVerified: { type: boolean }
+        landlordPhone: { type: string }
+        createdAt: { type: string }
+    ListingDetail:
+      allOf:
+        - $ref: "#/components/schemas/Listing"
+        - type: object
+          properties:
+            reviews:
+              type: array
+              items: { $ref: "#/components/schemas/Review" }
+            averageRating: { type: number }
+    ListingInput:
+      type: object
+      required: [title, description, address, city, monthlyRentGhs, propertyType, bedrooms, bathrooms, furnished, petFriendly, billsIncluded, photos, videoUrl, amenities]
+      properties:
+        title: { type: string, minLength: 3 }
+        description: { type: string, minLength: 20 }
+        address: { type: string }
+        city: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+        monthlyRentGhs: { type: number, minimum: 1 }
+        propertyType: { type: string }
+        bedrooms: { type: integer, minimum: 0 }
+        bathrooms: { type: integer, minimum: 1 }
+        furnished: { type: boolean }
+        petFriendly: { type: boolean }
+        billsIncluded: { type: boolean }
+        photos:
+          type: array
+          minItems: 3
+          items: { type: string }
+        videoUrl: { type: string, minLength: 1 }
+        amenities:
+          type: array
+          items: { type: string }
+    ListingUpdate:
+      allOf:
+        - $ref: "#/components/schemas/ListingInput"
+    Inquiry:
+      type: object
+      required: [id, listingId, tenantId, message, status, createdAt]
+      properties:
+        id: { type: string }
+        listingId: { type: string }
+        tenantId: { type: string }
+        tenantName: { type: string }
+        listingTitle: { type: string }
+        message: { type: string }
+        status: { type: string }
+        createdAt: { type: string }
+    InquiryInput:
+      type: object
+      required: [listingId, message]
+      properties:
+        listingId: { type: string }
+        message: { type: string, minLength: 2 }
+    Review:
+      type: object
+      required: [id, listingId, tenantId, rating, comment, createdAt]
+      properties:
+        id: { type: string }
+        listingId: { type: string }
+        tenantId: { type: string }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        comment: { type: string }
+        createdAt: { type: string }
+    ReviewDecision:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [approved, rejected] }
+        note: { type: string }
+    DashboardSummary:
+      type: object
+      required: [role, monthlyRentGhs, monthlyCommissionGhs, monthlyPayoutGhs, yearlyRentGhs, yearlyCommissionGhs, yearlyPayoutGhs, activeListings, pendingListings, savedListings, activeSubscriptions]
+      properties:
+        role: { type: string }
+        monthlyRentGhs: { type: number }
+        monthlyCommissionGhs: { type: number }
+        monthlyPayoutGhs: { type: number }
+        yearlyRentGhs: { type: number }
+        yearlyCommissionGhs: { type: number }
+        yearlyPayoutGhs: { type: number }
+        activeListings: { type: integer }
+        pendingListings: { type: integer }
+        savedListings: { type: integer }
+        activeSubscriptions: { type: integer }
+    SubscriptionInput:
+      type: object
+      required: [listingId]
+      properties:
+        listingId: { type: string }
+    SubscriptionResult:
+      type: object
+      required: [authorizationUrl, reference, subscriptionCode, amountGhs, commissionGhs, landlordPayoutGhs]
+      properties:
+        authorizationUrl: { type: string }
+        reference: { type: string }
+        subscriptionCode: { type: string }
+        amountGhs: { type: number }
+        commissionGhs: { type: number }
+        landlordPayoutGhs: { type: number }
 
