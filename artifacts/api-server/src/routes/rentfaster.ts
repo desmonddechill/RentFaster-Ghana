@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { raw, Router, type IRouter } from "express";
 import { and, desc, eq } from "drizzle-orm";
 import { db, inquiriesTable, listingsTable, reviewsTable, subscriptionsTable, usersTable } from "@workspace/db";
 import {
@@ -18,6 +18,8 @@ import {
   UpdateListingBody,
   UpdateListingParams,
 } from "@workspace/api-zod";
+import { getCurrentProfile, requireSupabaseUser, syncUserProfile, type ProfileRole } from "../lib/supabase-auth";
+import { ensureListingMediaBucket, uploadListingMedia } from "../lib/supabase-storage";
 
 const router: IRouter = Router();
 const GHANA_LISTING_PHOTOS = [
@@ -25,6 +27,49 @@ const GHANA_LISTING_PHOTOS = [
   "https://images.unsplash.com/photo-1600566753086-00f18fb6b3ea?auto=format&fit=crop&w=1400&q=85",
   "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1400&q=85",
 ];
+
+function roleFromBody(value: unknown): ProfileRole | undefined {
+  return value === "tenant" || value === "landlord" || value === "admin" ? value : undefined;
+}
+
+router.post("/auth/profile", async (req, res): Promise<void> => {
+  const user = await requireSupabaseUser(req, res);
+  if (!user) return;
+
+  const requestedRole = roleFromBody(req.body?.role);
+  if (req.body?.role && !requestedRole) {
+    res.status(400).json({ error: "Role must be tenant or landlord" });
+    return;
+  }
+
+  const profile = await syncUserProfile(user, requestedRole === "admin" ? undefined : requestedRole, req.body?.name);
+  await ensureListingMediaBucket();
+  res.json({
+    id: profile.id,
+    role: profile.role,
+    name: profile.name,
+    email: profile.email,
+    phone: profile.phone,
+    city: profile.city,
+    verified: profile.verified,
+  });
+});
+
+router.post("/listing-media", raw({ type: ["image/*", "video/*"], limit: "150mb" }), async (req, res): Promise<void> => {
+  const user = await requireSupabaseUser(req, res);
+  if (!user) return;
+  const contentType = req.header("content-type") ?? "";
+  if (!contentType.startsWith("image/") && !contentType.startsWith("video/")) {
+    res.status(415).json({ error: "Only image and video uploads are supported" });
+    return;
+  }
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    res.status(400).json({ error: "Upload body is empty" });
+    return;
+  }
+  const path = await uploadListingMedia(user.id, req.header("x-file-name") ?? "upload", contentType, req.body);
+  res.status(201).json({ path, url: path });
+});
 
 function money(value: string | number | null | undefined) {
   return Number(value ?? 0);
@@ -160,19 +205,20 @@ router.get("/listings/:listingId", async (req, res): Promise<void> => {
 });
 
 router.post("/listings", async (req, res): Promise<void> => {
+  const profile = await getCurrentProfile(req, res);
+  if (!profile) return;
+  if (profile.role !== "landlord") {
+    res.status(403).json({ error: "Only landlord accounts can create listings" });
+    return;
+  }
   const parsed = CreateListingBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [landlord] = await db.select().from(usersTable).where(eq(usersTable.role, "landlord")).limit(1);
-  if (!landlord) {
-    res.status(400).json({ error: "Landlord profile required" });
-    return;
-  }
   const rent = parsed.data.monthlyRentGhs;
   const [created] = await db.insert(listingsTable).values({
-    landlordId: landlord.id,
+    landlordId: profile.id,
     ...parsed.data,
     lat: parsed.data.lat == null ? null : String(parsed.data.lat),
     lng: parsed.data.lng == null ? null : String(parsed.data.lng),
@@ -184,10 +230,16 @@ router.post("/listings", async (req, res): Promise<void> => {
     yearlyLandlordTotalGhs: String(rent * 0.9 * 12),
     status: "pending",
   }).returning();
-  res.status(201).json(mapListing(created, landlord));
+  res.status(201).json(mapListing(created, profile));
 });
 
 router.patch("/listings/:listingId", async (req, res): Promise<void> => {
+  const profile = await getCurrentProfile(req, res);
+  if (!profile) return;
+  if (profile.role !== "landlord") {
+    res.status(403).json({ error: "Only landlord accounts can update listings" });
+    return;
+  }
   const params = UpdateListingParams.parse(req.params);
   const parsed = UpdateListingBody.safeParse(req.body);
   if (!parsed.success) {
@@ -205,16 +257,17 @@ router.patch("/listings/:listingId", async (req, res): Promise<void> => {
     yearlyCommissionTotalGhs: String(rent * 0.1 * 12),
     yearlyLandlordTotalGhs: String(rent * 0.9 * 12),
     status: "pending",
-  }).where(eq(listingsTable.id, params.listingId)).returning();
+  }).where(and(eq(listingsTable.id, params.listingId), eq(listingsTable.landlordId, profile.id))).returning();
   if (!updated) {
     res.status(404).json({ error: "Listing not found" });
     return;
   }
-  const [landlord] = await db.select().from(usersTable).where(eq(usersTable.id, updated.landlordId));
-  res.json(mapListing(updated, landlord));
+  res.json(mapListing(updated, profile));
 });
 
 router.get("/inquiries", async (req, res): Promise<void> => {
+  const profile = await getCurrentProfile(req, res);
+  if (!profile) return;
   const query = ListInquiriesQueryParams.parse(req.query);
   const rows = await db.select({
     id: inquiriesTable.id,
@@ -228,31 +281,46 @@ router.get("/inquiries", async (req, res): Promise<void> => {
   }).from(inquiriesTable)
     .innerJoin(listingsTable, eq(inquiriesTable.listingId, listingsTable.id))
     .innerJoin(usersTable, eq(inquiriesTable.tenantId, usersTable.id))
+    .where(profile.role === "admin"
+      ? undefined
+      : profile.role === "landlord"
+        ? eq(listingsTable.landlordId, profile.id)
+        : eq(inquiriesTable.tenantId, profile.id))
     .orderBy(desc(inquiriesTable.createdAt));
   res.json(ListInquiriesResponse.parse(rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }))));
 });
 
 router.post("/inquiries", async (req, res): Promise<void> => {
+  const profile = await getCurrentProfile(req, res);
+  if (!profile) return;
+  if (profile.role !== "tenant") {
+    res.status(403).json({ error: "Only tenant accounts can send inquiries" });
+    return;
+  }
   const parsed = CreateInquiryBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [tenant] = await db.select().from(usersTable).where(eq(usersTable.role, "tenant")).limit(1);
-  if (!tenant) {
-    res.status(400).json({ error: "Tenant profile required" });
-    return;
-  }
-  const [created] = await db.insert(inquiriesTable).values({ ...parsed.data, tenantId: tenant.id }).returning();
+  const [created] = await db.insert(inquiriesTable).values({ ...parsed.data, tenantId: profile.id }).returning();
   res.status(201).json({ ...created, createdAt: created.createdAt.toISOString() });
 });
 
 router.get("/dashboard/summary", async (req, res): Promise<void> => {
+  const profile = await getCurrentProfile(req, res);
+  if (!profile) return;
   await ensureSeedData();
   const query = GetDashboardSummaryQueryParams.parse(req.query);
+  if (query.role !== profile.role) {
+    res.status(403).json({ error: "Dashboard role does not match the authenticated profile" });
+    return;
+  }
   const listings = await db.select().from(listingsTable);
   const subscriptions = await db.select().from(subscriptionsTable);
-  const approved = listings.filter((listing) => listing.status === "approved");
+  const visibleListings = profile.role === "admin"
+    ? listings
+    : listings.filter((listing) => listing.landlordId === profile.id);
+  const approved = visibleListings.filter((listing) => listing.status === "approved");
   const monthlyRent = approved.reduce((sum, listing) => sum + money(listing.monthlyRentGhs), 0);
   const commission = monthlyRent * 0.1;
   const summary = {
@@ -264,7 +332,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
     yearlyCommissionGhs: commission * 12,
     yearlyPayoutGhs: (monthlyRent - commission) * 12,
     activeListings: approved.length,
-    pendingListings: listings.filter((listing) => listing.status === "pending").length,
+    pendingListings: visibleListings.filter((listing) => listing.status === "pending").length,
     savedListings: 0,
     activeSubscriptions: subscriptions.filter((subscription) => subscription.status === "active").length,
   };
@@ -272,6 +340,12 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
 });
 
 router.post("/admin/listings/:listingId/review", async (req, res): Promise<void> => {
+  const profile = await getCurrentProfile(req, res);
+  if (!profile) return;
+  if (profile.role !== "admin") {
+    res.status(403).json({ error: "Admin access required" });
+    return;
+  }
   const params = ReviewListingParams.parse(req.params);
   const parsed = ReviewListingBody.safeParse(req.body);
   if (!parsed.success) {
@@ -288,6 +362,12 @@ router.post("/admin/listings/:listingId/review", async (req, res): Promise<void>
 });
 
 router.post("/payments/subscribe", async (req, res): Promise<void> => {
+  const profile = await getCurrentProfile(req, res);
+  if (!profile) return;
+  if (profile.role !== "tenant") {
+    res.status(403).json({ error: "Only tenant accounts can start a rent payment" });
+    return;
+  }
   const parsed = CreateSubscriptionBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -321,10 +401,7 @@ router.post("/payments/subscribe", async (req, res): Promise<void> => {
     authorizationUrl = payload.data?.authorization_url ?? authorizationUrl;
     subscriptionCode = payload.data?.access_code ?? subscriptionCode;
   }
-  const [tenant] = await db.select().from(usersTable).where(eq(usersTable.role, "tenant")).limit(1);
-  if (tenant) {
-    await db.insert(subscriptionsTable).values({ tenantId: tenant.id, listingId: listing.id, amountGhs: String(amountGhs), paystackSubscriptionCode: subscriptionCode, status: "pending" });
-  }
+  await db.insert(subscriptionsTable).values({ tenantId: profile.id, listingId: listing.id, amountGhs: String(amountGhs), paystackSubscriptionCode: subscriptionCode, status: "pending" });
   res.status(201).json({ authorizationUrl, reference, subscriptionCode, amountGhs, commissionGhs, landlordPayoutGhs });
 });
 

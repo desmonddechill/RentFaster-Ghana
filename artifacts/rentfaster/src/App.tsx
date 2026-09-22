@@ -1,10 +1,10 @@
-import { useMemo, useState, type ReactNode, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type ReactNode, type FormEvent } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
-import { useCreateListing, useCreateSubscription, useGetDashboardSummary, useGetFeaturedListings, useGetListing, useListInquiries, useListListings, useUpdateListing, getGetDashboardSummaryQueryKey, getGetFeaturedListingsQueryKey, getGetListingQueryKey, getListInquiriesQueryKey, getListListingsQueryKey } from '@workspace/api-client-react';
+import { useCreateInquiry, useCreateListing, useCreateSubscription, useGetDashboardSummary, useGetFeaturedListings, useGetListing, useListInquiries, useListListings, useUpdateListing, getGetDashboardSummaryQueryKey, getGetFeaturedListingsQueryKey, getGetListingQueryKey, getListInquiriesQueryKey, getListListingsQueryKey } from '@workspace/api-client-react';
 import { ArrowRight, Bath, BedDouble, Bell, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, ClipboardList, FileText, Filter, Heart, Home as HomeIcon, House, Landmark, LayoutDashboard, Link2, Loader2, LockKeyhole, LogIn, MapPin, Menu, MessageCircle, MoreHorizontal, Play, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Star, TrendingUp, UserRound, Users, Video, Wallet, X, Zap } from 'lucide-react';
 import {
   Route,
@@ -14,6 +14,8 @@ import {
   useParams,
   Router as WouterRouter,
 } from 'wouter';
+import { AuthProvider, useAuth } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 
 const queryClient = new QueryClient();
 
@@ -138,6 +140,86 @@ function ListingDetailPage() {
        <aside><div className="sticky top-5 rounded-2xl border border-border bg-card p-5 shadow-[0_12px_35px_hsl(18_32%_15%/.08)]"><p className="text-sm text-muted-foreground">Monthly rent</p><p className="mt-1 font-display text-4xl text-primary">{money(listing.monthlyRentGhs)}<span className="font-sans text-sm text-muted-foreground"> / month</span></p><div className="mt-5 grid gap-2"><button onClick={() => subscription.mutate({ data: { listingId: listing.id } }, { onSuccess: () => setNotice('Rent Now started. Continue to secure payment to reserve this home.'), onError: () => setNotice('Sign in to continue with Rent Now.') })} className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 text-sm font-bold text-primary-foreground transition-transform hover:-translate-y-0.5 disabled:opacity-60" disabled={subscription.isPending} data-testid="button-rent-now">{subscription.isPending ? <Loader2 className="animate-spin" size={16} /> : <Zap size={16} />} Rent Now</button><button onClick={() => setInquiryOpen(!inquiryOpen)} className="flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-3.5 text-sm font-bold hover:bg-muted" data-testid="button-send-inquiry"><MessageCircle size={16} /> Ask the landlord</button><a href={`https://wa.me/${(listing.landlordPhone || '').replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="flex w-full items-center justify-center gap-2 rounded-xl bg-secondary px-4 py-3.5 text-sm font-bold text-secondary-foreground" data-testid="link-whatsapp"><MessageCircle size={16} /> WhatsApp landlord</a></div>{inquiryOpen && <form onSubmit={submitInquiry} className="mt-5 border-t border-border pt-5 animate-rise-in"><label className="text-sm font-bold">Your message<span className="text-primary"> *</span><textarea value={message} onChange={(e) => setMessage(e.target.value)} required minLength={2} rows={4} placeholder="Hi, I’d love to arrange a viewing..." className="mt-2 w-full resize-none rounded-xl border border-input bg-background p-3 text-sm outline-none ring-primary/30 focus:ring-4" data-testid="textarea-inquiry" /></label><button className="mt-3 w-full rounded-xl bg-ink px-4 py-3 text-sm font-bold text-cream" data-testid="button-submit-inquiry">Send inquiry</button></form>}<div className="mt-6 flex items-center gap-3 border-t border-border pt-5"><div className="grid size-11 place-items-center rounded-full bg-accent text-sm font-bold text-ink">{(listing.landlordName || 'L')[0]}</div><div><p className="text-sm font-bold">{listing.landlordName || 'Verified landlord'}</p><p className="flex items-center gap-1 text-xs text-secondary"><ShieldCheck size={13} /> Identity verified · Usually replies in a day</p></div></div><button className="mt-5 flex w-full items-center justify-center gap-2 text-xs font-semibold text-muted-foreground hover:text-destructive" onClick={() => setNotice('Thanks. We will review this listing and follow up if needed.')} data-testid="button-report-listing"><CircleAlert size={14} /> Report this listing</button></div></aside></div></>}</main><Footer /></div>;
 }
 
+function ConnectedListingDetailPage() {
+  const { id = '' } = useParams<{ id: string }>();
+  const query = useGetListing(id, { query: { enabled: !!id, queryKey: getGetListingQueryKey(id) } });
+  const listing = (query.data as Listing | undefined) || mockListings.find((item) => item.id === id);
+  const inquiry = useCreateInquiry();
+  const { profile } = useAuth();
+  const [message, setMessage] = useState('');
+  const [notice, setNotice] = useState('');
+
+  if (!listing) return <div className="p-8"><Notice tone="error" onClose={() => setNotice('')}>This listing could not be found.</Notice></div>;
+  const submitInquiry = (event: FormEvent) => {
+    event.preventDefault();
+    if (!profile) {
+      setNotice('Sign in as a tenant to contact the landlord.');
+      return;
+    }
+    inquiry.mutate({ data: { listingId: listing.id, message } }, {
+      onSuccess: () => {
+        setMessage('');
+        setNotice('Your inquiry has been sent to the landlord.');
+      },
+      onError: (error) => setNotice(error instanceof Error ? error.message : 'We could not send your inquiry.'),
+    });
+  };
+
+  return <div className="min-h-[100dvh]"><SiteHeader /><main className="mx-auto max-w-7xl px-5 py-6 lg:px-8">{notice && <div className="mb-5"><Notice onClose={() => setNotice('')}>{notice}</Notice></div>}<Link href="/search" className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground"><ChevronLeft size={16} /> Back to search</Link><div className="grid gap-3 overflow-hidden rounded-2xl md:grid-cols-[1.5fr_1fr] md:grid-rows-2 md:h-[500px]"><div className="overflow-hidden bg-muted md:row-span-2"><img src={listing.photos[0] || photoSet[0]} alt={listing.title} className="h-full w-full object-cover" /></div><div className="hidden overflow-hidden bg-muted md:block"><img src={listing.photos[1] || photoSet[1]} alt="" className="h-full w-full object-cover" /></div><div className="hidden overflow-hidden bg-muted md:block"><img src={listing.photos[2] || photoSet[2]} alt="" className="h-full w-full object-cover" /></div></div><div className="grid gap-10 py-9 lg:grid-cols-[1.3fr_.7fr]"><div><p className="font-mono-brand text-[10px] uppercase tracking-[.18em] text-primary">{listing.propertyType} · {listing.city}</p><h1 className="mt-2 font-display text-5xl tracking-[-.05em]">{listing.title}</h1><p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground"><MapPin size={15} className="text-primary" />{listing.address}, {listing.city}</p><p className="mt-7 max-w-2xl text-base leading-7 text-muted-foreground">{listing.description}</p><div className="mt-7 flex flex-wrap gap-2">{listing.amenities.map((amenity) => <span key={amenity} className="rounded-full bg-muted px-3 py-1.5 text-xs font-semibold">{amenity}</span>)}</div></div><aside className="rounded-2xl border border-border bg-card p-5"><p className="text-sm text-muted-foreground">Monthly rent</p><p className="mt-1 font-display text-4xl text-primary">{money(listing.monthlyRentGhs)}<span className="font-sans text-sm text-muted-foreground"> / month</span></p><div className="mt-5 flex items-center gap-3 border-t border-border pt-5"><div className="grid size-11 place-items-center rounded-full bg-accent text-sm font-bold text-ink">{(listing.landlordName || 'L')[0]}</div><div><p className="text-sm font-bold">{listing.landlordName || 'Verified landlord'}</p><p className="flex items-center gap-1 text-xs text-secondary"><ShieldCheck size={13} /> Identity verified</p></div></div><form onSubmit={submitInquiry} className="mt-5 border-t border-border pt-5"><label className="text-sm font-bold">Your message<span className="text-primary"> *</span><textarea value={message} onChange={(event) => setMessage(event.target.value)} required minLength={2} rows={4} placeholder="Hi, I’d love to arrange a viewing..." className="mt-2 w-full resize-none rounded-xl border border-input bg-background p-3 text-sm outline-none ring-primary/30 focus:ring-4" /></label><button disabled={inquiry.isPending} className="mt-3 w-full rounded-xl bg-ink px-4 py-3 text-sm font-bold text-cream disabled:opacity-60">{inquiry.isPending ? 'Sending…' : 'Send inquiry'}</button></form></aside></div></main></div>;
+}
+
+function SupabaseAuthPage({ mode }: { mode: 'login' | 'signup' }) {
+  const [, setLocation] = useLocation();
+  const { signIn, signUp, signInWithGoogle } = useAuth();
+  const [role, setRole] = useState<'tenant' | 'landlord'>('tenant');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+  const isSignup = mode === 'signup';
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setNotice('');
+    try {
+      let destinationRole = role;
+      if (isSignup) {
+        const signedUpProfile = await signUp(email, password, role);
+        if (!signedUpProfile) {
+          setNotice('Check your email to confirm your account, then come back to sign in.');
+          return;
+        }
+        destinationRole = signedUpProfile.role === 'landlord' ? 'landlord' : 'tenant';
+      } else {
+        const signedInProfile = await signIn(email, password);
+        destinationRole = signedInProfile.role === 'landlord' ? 'landlord' : 'tenant';
+      }
+      setLocation(destinationRole === 'landlord' ? '/landlord' : '/tenant');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Authentication failed. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const google = async () => {
+    setBusy(true);
+    setNotice('');
+    try {
+      await signInWithGoogle(role);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Google sign-in failed. Please try again.');
+      setBusy(false);
+    }
+  };
+
+  return <div className="grid min-h-[100dvh] lg:grid-cols-[.8fr_1.2fr]">
+    <div className="relative hidden overflow-hidden bg-ink lg:block"><div className="absolute inset-0 surface-dots opacity-20" /><div className="relative flex h-full flex-col justify-between p-10"><Brand dark /><div className="max-w-md pb-8"><p className="font-mono-brand text-[10px] uppercase tracking-[.2em] text-accent">Rent with more certainty</p><h1 className="mt-4 font-display text-6xl leading-[.95] tracking-[-.06em] text-cream">Good homes<br /><span className="text-primary">feel different.</span></h1><p className="mt-6 text-sm leading-6 text-cream/60">Your next chapter in Accra, Kumasi, or wherever home finds you.</p></div><p className="text-xs text-cream/40">Verified homes · Clear fees · Ghana-first</p></div></div>
+    <div className="flex flex-col bg-background"><div className="flex items-center justify-between px-5 py-6 lg:px-12"><div className="lg:hidden"><Brand /></div><Link href="/" className="ml-auto flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground"><ChevronLeft size={16} /> Back home</Link></div><main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-5 pb-12 lg:px-0"><div className="animate-rise-in"><p className="font-mono-brand text-[10px] uppercase tracking-[.2em] text-primary">{isSignup ? 'Start here' : 'Welcome back'}</p><h1 className="mt-3 font-display text-4xl tracking-[-.045em]">{isSignup ? 'Make room for what’s next.' : 'Good to see you again.'}</h1><p className="mt-3 text-sm text-muted-foreground">{isSignup ? 'Create one account for every part of your rental journey.' : 'Sign in to pick up where you left off.'}</p>{notice && <div className="mt-5"><Notice onClose={() => setNotice('')} tone="error">{notice}</Notice></div>}<form className="mt-8 grid gap-4" onSubmit={submit}><label className="grid gap-2 text-sm font-bold">Email address<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" className="rounded-xl border border-input bg-card px-4 py-3 font-normal outline-none focus:ring-4 focus:ring-primary/10" data-testid="input-auth-email" /></label><label className="grid gap-2 text-sm font-bold">Password<input type="password" required minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 6 characters" className="rounded-xl border border-input bg-card px-4 py-3 font-normal outline-none focus:ring-4 focus:ring-primary/10" data-testid="input-auth-password" /></label>{isSignup && <div><p className="mb-2 text-sm font-bold">I’m here to…</p><div className="grid grid-cols-2 gap-2">{(['tenant', 'landlord'] as const).map((item) => <button type="button" key={item} onClick={() => setRole(item)} className={cx('rounded-xl border px-3 py-3 text-sm font-bold capitalize transition-colors', role === item ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-card')} data-testid={`button-role-${item}`}>{item === 'tenant' ? <UserRound className="mx-auto mb-1" size={18} /> : <Building2 className="mx-auto mb-1" size={18} />}{item}</button>)}</div></div>}<button disabled={busy} className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 text-sm font-bold text-primary-foreground disabled:opacity-60" data-testid="button-submit-auth">{busy ? <Loader2 className="animate-spin" size={16} /> : <ArrowRight size={16} />}{isSignup ? 'Create account' : 'Sign in'}</button></form><div className="my-6 flex items-center gap-3 text-xs text-muted-foreground"><span className="h-px flex-1 bg-border" />or<span className="h-px flex-1 bg-border" /></div><button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-3.5 text-sm font-bold hover:bg-muted disabled:opacity-60" onClick={google}><span className="text-base font-bold">G</span> Continue with Google</button></div></main></div>
+  </div>;
+}
+
 function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
   const [, setLocation] = useLocation(); const [role, setRole] = useState<'tenant' | 'landlord'>('tenant'); const [notice, setNotice] = useState(''); const isSignup = mode === 'signup';
   return <div className="grid min-h-[100dvh] lg:grid-cols-[.8fr_1.2fr]"><div className="relative hidden overflow-hidden bg-ink lg:block"><div className="absolute inset-0 surface-dots opacity-20" /><div className="relative flex h-full flex-col justify-between p-10"><Brand dark /><div className="max-w-md pb-8"><p className="font-mono-brand text-[10px] uppercase tracking-[.2em] text-accent">Rent with more certainty</p><h1 className="mt-4 font-display text-6xl leading-[.95] tracking-[-.06em] text-cream">Good homes<br /><span className="text-primary">feel different.</span></h1><p className="mt-6 text-sm leading-6 text-cream/60">Your next chapter in Accra, Kumasi, or wherever home finds you.</p></div><p className="text-xs text-cream/40">Verified homes · Clear fees · Ghana-first</p></div></div><div className="flex flex-col bg-background"><div className="flex items-center justify-between px-5 py-6 lg:px-12"><div className="lg:hidden"><Brand /></div><Link href="/" className="ml-auto flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground" data-testid="link-auth-home"><ChevronLeft size={16} /> Back home</Link></div><main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-5 pb-12 lg:px-0"><div className="animate-rise-in"><p className="font-mono-brand text-[10px] uppercase tracking-[.2em] text-primary">{isSignup ? 'Start here' : 'Welcome back'}</p><h1 className="mt-3 font-display text-4xl tracking-[-.045em]">{isSignup ? 'Make room for what’s next.' : 'Good to see you again.'}</h1><p className="mt-3 text-sm text-muted-foreground">{isSignup ? 'Create one account for every part of your rental journey.' : 'Sign in to pick up where you left off.'}</p>{notice && <div className="mt-5"><Notice onClose={() => setNotice('')}>{notice}</Notice></div>}<form className="mt-8 grid gap-4" onSubmit={(e) => { e.preventDefault(); setLocation(role === 'landlord' ? '/landlord' : '/tenant'); }}><label className="grid gap-2 text-sm font-bold">Email address<input type="email" required placeholder="you@example.com" className="rounded-xl border border-input bg-card px-4 py-3 font-normal outline-none focus:ring-4 focus:ring-primary/10" data-testid="input-auth-email" /></label><label className="grid gap-2 text-sm font-bold">Password<input type="password" required minLength={6} placeholder="At least 6 characters" className="rounded-xl border border-input bg-card px-4 py-3 font-normal outline-none focus:ring-4 focus:ring-primary/10" data-testid="input-auth-password" /></label>{isSignup && <div><p className="mb-2 text-sm font-bold">I’m here to…</p><div className="grid grid-cols-2 gap-2">{(['tenant', 'landlord'] as const).map((item) => <button type="button" key={item} onClick={() => setRole(item)} className={cx('rounded-xl border px-3 py-3 text-sm font-bold capitalize transition-colors', role === item ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-card')} data-testid={`button-role-${item}`}>{item === 'tenant' ? <UserRound className="mx-auto mb-1" size={18} /> : <Building2 className="mx-auto mb-1" size={18} />}{item}</button>)}</div></div>}<button className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 text-sm font-bold text-primary-foreground" data-testid="button-submit-auth">{isSignup ? 'Create account' : 'Sign in'} <ArrowRight size={16} /></button></form><div className="my-6 flex items-center gap-3 text-xs text-muted-foreground"><span className="h-px flex-1 bg-border" />or<span className="h-px flex-1 bg-border" /></div><button className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-3.5 text-sm font-bold hover:bg-muted" onClick={() => setNotice('Google sign in is ready to connect when authentication is enabled.')} data-testid="button-google-auth"><span className="grid size-5 place-items-center rounded-full border border-border text-xs font-bold">G</span> Continue with Google</button><p className="mt-7 text-center text-sm text-muted-foreground">{isSignup ? 'Already have an account?' : 'New to RentFaster?'} <Link href={isSignup ? '/login' : '/signup'} className="font-bold text-primary hover:underline" data-testid="link-switch-auth">{isSignup ? 'Log in' : 'Create one'}</Link></p></div></main></div></div>;
@@ -162,6 +244,113 @@ function LandlordDashboard() {
   return <DashboardShell role="landlord" title="Your portfolio" subtitle="A clear view of homes, people, and earnings."><div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="text-sm text-muted-foreground">Tuesday, 18 June 2024</p><h2 className="mt-1 font-display text-3xl tracking-[-.04em]">Good morning, Ama.</h2></div><Link href="/landlord/new" className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground" data-testid="button-new-listing"><Plus size={17} /> Add a property</Link></div><div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Monthly payout" value={money(summary?.monthlyPayoutGhs ?? 10800)} note="After 10% service fee" icon={Wallet} tone="secondary" /><MetricCard label="This month’s fee" value={money(summary?.monthlyCommissionGhs ?? 1200)} note="Your RentFaster contribution" icon={TrendingUp} /><MetricCard label="Active listings" value={String(summary?.activeListings ?? 3)} note="2 in Accra · 1 in Kumasi" icon={Building2} tone="accent" /><MetricCard label="Awaiting approval" value={String(summary?.pendingListings ?? 1)} note="Usually reviewed in 1 day" icon={ClipboardList} /></div><div className="mt-8 grid gap-6 lg:grid-cols-[1.15fr_.85fr]"><section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h2 className="font-display text-2xl">Your listings</h2><p className="mt-1 text-sm text-muted-foreground">Keep your homes fresh and accurate.</p></div><button onClick={() => setNotice('Listing management filters are ready for your inventory.')} className="rounded-lg p-2 hover:bg-muted" data-testid="button-listing-filters"><SlidersHorizontal size={17} /></button></div><div className="mt-5 grid gap-3">{mockListings.map((l) => <div className="flex flex-col gap-3 rounded-xl border border-border p-3 sm:flex-row sm:items-center" key={l.id}><img src={l.photos[0]} alt="" className="h-20 w-full rounded-lg object-cover sm:w-24" /><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><h3 className="truncate text-sm font-bold">{l.title}</h3><span className={cx('shrink-0 rounded-full px-2 py-1 text-[10px] font-bold capitalize', l.status === 'approved' ? 'bg-secondary/10 text-secondary' : 'bg-accent/40 text-ink')}>{l.status}</span></div><p className="mt-1 text-xs text-muted-foreground">{money(l.monthlyRentGhs)} / month · {l.city}</p><p className="mt-1 text-xs text-secondary"><ShieldCheck size={12} className="mr-1 inline" />Video and photos verified</p></div><button onClick={() => update.mutate({ listingId: l.id, data: { title: l.title, description: l.description || '', address: l.address || '', city: l.city, monthlyRentGhs: l.monthlyRentGhs, propertyType: l.propertyType, bedrooms: l.bedrooms, bathrooms: l.bathrooms, furnished: l.furnished, petFriendly: l.petFriendly, billsIncluded: l.billsIncluded, photos: l.photos, videoUrl: l.videoUrl, amenities: l.amenities } }, { onSuccess: () => setNotice('Listing details saved.'), onError: () => setNotice('Sign in as a landlord to edit listings.') })} className="rounded-lg border border-border p-2 text-muted-foreground hover:bg-muted" data-testid={`button-edit-listing-${l.id}`}><FileText size={16} /></button></div>)}</div></section><section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h2 className="font-display text-2xl">Recent inquiries</h2><p className="mt-1 text-sm text-muted-foreground">People looking closely at your homes.</p></div><span className="grid size-8 place-items-center rounded-full bg-primary/10 text-sm font-bold text-primary">{inquiries.length || 2}</span></div><div className="mt-5 grid gap-3">{(inquiries.length ? inquiries : [{ id: 'mock-i1', tenantName: 'Nana Owusu', listingTitle: 'Sunlit 2-bed in Cantonments', message: 'Could I view this on Saturday morning?', status: 'new' }, { id: 'mock-i2', tenantName: 'Abena K.', listingTitle: 'Modern courtyard home in Osu', message: 'Are the bills included in the rent?', status: 'new' }]).map((i) => <div className="rounded-xl bg-muted/60 p-3" key={i.id}><div className="flex items-center justify-between"><p className="text-sm font-bold">{i.tenantName}</p><span className="font-mono-brand text-[10px] uppercase text-primary">{i.status}</span></div><p className="mt-1 text-xs text-muted-foreground">{i.listingTitle}</p><p className="mt-2 text-sm leading-5">{i.message}</p><div className="mt-3 flex gap-2"><button className="rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground" onClick={() => setNotice('Reply composer opened.')} data-testid={`button-reply-inquiry-${i.id}`}>Reply</button><button className="rounded-lg border border-border px-3 py-2 text-xs font-bold" onClick={() => setNotice('Inquiry marked as read.')} data-testid={`button-read-inquiry-${i.id}`}>Mark read</button></div></div>)}</div></section></div><div className="mt-6 flex flex-col justify-between gap-4 rounded-2xl border border-border bg-card p-5 sm:flex-row sm:items-center"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-secondary/10 text-secondary"><Landmark size={19} /></div><div><h2 className="text-sm font-bold">Paystack subaccount</h2><p className="mt-1 text-xs text-muted-foreground">Connect your bank details to receive automated payouts.</p></div></div><button className="rounded-xl border border-secondary px-4 py-2.5 text-xs font-bold text-secondary hover:bg-secondary/10" onClick={() => setNotice('Paystack subaccount setup opened.')} data-testid="button-setup-paystack">Set up payouts <ArrowRight size={14} className="ml-1 inline" /></button></div>{notice && <div className="mt-4"><Notice onClose={() => setNotice('')}>{notice}</Notice></div>}</DashboardShell>;
 }
 
+function RoleGate({ role, children }: { role: 'tenant' | 'landlord' | 'admin'; children: ReactNode }) {
+  const [, setLocation] = useLocation();
+  const { loading, profile } = useAuth();
+  if (loading) return <div className="grid min-h-[100dvh] place-items-center bg-background"><Loader2 className="animate-spin text-primary" /></div>;
+  if (!profile) return <div className="grid min-h-[100dvh] place-items-center bg-background p-6"><div className="max-w-sm text-center"><LockKeyhole className="mx-auto text-primary" size={30} /><h1 className="mt-4 font-display text-3xl">Sign in to continue</h1><p className="mt-2 text-sm text-muted-foreground">This workspace is available to authenticated RentFaster accounts.</p><button onClick={() => setLocation('/login')} className="mt-5 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground">Go to sign in</button></div></div>;
+  if (profile.role !== role) return <div className="grid min-h-[100dvh] place-items-center bg-background p-6"><div className="max-w-sm text-center"><LockKeyhole className="mx-auto text-primary" size={30} /><h1 className="mt-4 font-display text-3xl">That workspace is not available</h1><p className="mt-2 text-sm text-muted-foreground">Your {profile.role} account cannot access the {role} workspace.</p><button onClick={() => setLocation(profile.role === 'landlord' ? '/landlord' : profile.role === 'tenant' ? '/tenant' : '/admin')} className="mt-5 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground">Go to my workspace</button></div></div>;
+  return <>{children}</>;
+}
+
+function TenantRoute() {
+  return <RoleGate role="tenant"><TenantDashboard /></RoleGate>;
+}
+
+function LandlordRoute() {
+  return <RoleGate role="landlord"><LandlordDashboard /></RoleGate>;
+}
+
+function LandlordNewRoute() {
+  return <RoleGate role="landlord"><SupabaseNewListingPage /></RoleGate>;
+}
+
+function AdminRoute() {
+  return <RoleGate role="admin"><AdminDashboard /></RoleGate>;
+}
+
+function SupabaseNewListingPage() {
+  const [, setLocation] = useLocation();
+  const { profile } = useAuth();
+  const create = useCreateListing();
+  const [notice, setNotice] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [video, setVideo] = useState<File | null>(null);
+  const [form, setForm] = useState({
+    title: '', description: '', address: '', city: 'Accra', monthlyRentGhs: '',
+    propertyType: 'Apartment', bedrooms: '2', bathrooms: '2', furnished: true,
+    petFriendly: false, billsIncluded: false, amenities: 'Backup power, Security, Water tank',
+  });
+  const update = (key: string, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }));
+
+  const upload = async (file: File) => {
+    if (!profile) throw new Error('Sign in as a landlord before uploading media.');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Your session expired. Please sign in again.');
+    const response = await fetch('/api/listing-media', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': file.type,
+        'X-File-Name': file.name,
+      },
+      body: file,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error ?? 'Media upload failed.');
+    return payload.url as string;
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (photos.length < 3) {
+      setNotice('Choose at least three property photos.');
+      return;
+    }
+    if (!video) {
+      setNotice('Choose a property video before submitting.');
+      return;
+    }
+    setUploading(true);
+    setNotice('');
+    try {
+      const [uploadedPhotos, uploadedVideo] = await Promise.all([
+        Promise.all(photos.map(upload)),
+        upload(video),
+      ]);
+      create.mutate({
+        data: {
+          title: form.title,
+          description: form.description,
+          address: form.address,
+          city: form.city,
+          monthlyRentGhs: Number(form.monthlyRentGhs),
+          propertyType: form.propertyType,
+          bedrooms: Number(form.bedrooms),
+          bathrooms: Number(form.bathrooms),
+          furnished: form.furnished,
+          petFriendly: form.petFriendly,
+          billsIncluded: form.billsIncluded,
+          photos: uploadedPhotos,
+          videoUrl: uploadedVideo,
+          amenities: form.amenities.split(',').map((item) => item.trim()).filter(Boolean),
+        },
+      }, {
+        onSuccess: () => setLocation('/landlord'),
+        onError: (error) => setNotice(error instanceof Error ? error.message : 'We could not submit this listing yet.'),
+      });
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Media upload failed. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const input = (key: string, label: string, placeholder: string, type = 'text') => <label className="grid gap-2 text-sm font-bold">{label}<input type={type} value={String(form[key as keyof typeof form])} onChange={(event) => update(key, event.target.value)} required className="rounded-xl border border-input bg-card px-4 py-3 font-normal outline-none focus:ring-4 focus:ring-primary/10" placeholder={placeholder} data-testid={`input-listing-${key}`} /></label>;
+  return <div className="min-h-[100dvh]"><SiteHeader /><main className="mx-auto max-w-4xl px-5 py-10 lg:px-8"><Link href="/landlord" className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-primary"><ChevronLeft size={16} /> Back to dashboard</Link><div className="max-w-2xl"><p className="font-mono-brand text-[10px] uppercase tracking-[.2em] text-primary">Property submission</p><h1 className="mt-3 font-display text-5xl tracking-[-.055em]">Put your home on the map.</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">Upload real media for review. Every listing is checked before it goes live.</p></div>{notice && <div className="mt-7"><Notice tone="error" onClose={() => setNotice('')}>{notice}</Notice></div>}<form className="mt-9 grid gap-7" onSubmit={submit}><section className="rounded-2xl border border-border bg-card p-5 sm:p-7"><div className="mb-6 flex items-center gap-3"><span className="grid size-8 place-items-center rounded-full bg-primary text-sm font-bold text-primary-foreground">1</span><div><h2 className="font-display text-2xl">The essentials</h2><p className="text-xs text-muted-foreground">A tenant should know where they’re landing.</p></div></div><div className="grid gap-4 sm:grid-cols-2">{input('title', 'Listing title', 'Sunlit 2-bed in Cantonments')}{input('address', 'Address or neighbourhood', 'Fourth Circular Road')}{input('city', 'City', 'Accra')}{input('monthlyRentGhs', 'Monthly rent (GH₵)', '7200', 'number')}</div><div className="mt-4 grid gap-4 sm:grid-cols-3">{input('propertyType', 'Property type', 'Apartment')}{input('bedrooms', 'Bedrooms', '2', 'number')}{input('bathrooms', 'Bathrooms', '2', 'number')}</div><label className="mt-4 grid gap-2 text-sm font-bold">Description<textarea required minLength={20} value={form.description} onChange={(event) => update('description', event.target.value)} rows={5} placeholder="What makes this home a good place to live?" className="resize-none rounded-xl border border-input bg-background px-4 py-3 font-normal outline-none focus:ring-4 focus:ring-primary/10" /></label><label className="mt-4 grid gap-2 text-sm font-bold">Amenities<input value={form.amenities} onChange={(event) => update('amenities', event.target.value)} className="rounded-xl border border-input bg-background px-4 py-3 font-normal" /><span className="text-xs font-normal text-muted-foreground">Separate with commas.</span></label><div className="mt-5 flex flex-wrap gap-4 text-sm font-semibold"><label className="flex items-center gap-2"><input type="checkbox" checked={form.furnished} onChange={(event) => update('furnished', event.target.checked)} /> Furnished</label><label className="flex items-center gap-2"><input type="checkbox" checked={form.petFriendly} onChange={(event) => update('petFriendly', event.target.checked)} /> Pet friendly</label><label className="flex items-center gap-2"><input type="checkbox" checked={form.billsIncluded} onChange={(event) => update('billsIncluded', event.target.checked)} /> Bills included</label></div></section><section className="rounded-2xl border border-border bg-card p-5 sm:p-7"><div className="mb-6 flex items-center gap-3"><span className="grid size-8 place-items-center rounded-full bg-primary text-sm font-bold text-primary-foreground">2</span><div><h2 className="font-display text-2xl">Show the home</h2><p className="text-xs text-muted-foreground">At least three photos and one walk-through video are required.</p></div></div><label className="grid gap-2 text-sm font-bold">Property photos<span className="text-xs font-normal text-muted-foreground">Select three or more images.</span><input type="file" accept="image/*" multiple required onChange={(event) => setPhotos(Array.from(event.target.files ?? []))} className="rounded-xl border border-dashed border-input bg-background px-3 py-3 text-sm font-normal" data-testid="input-listing-photos" />{photos.length > 0 && <span className="text-xs font-normal text-secondary">{photos.length} photo{photos.length === 1 ? '' : 's'} selected</span>}</label><label className="mt-4 grid gap-2 text-sm font-bold"><span className="flex items-center gap-2"><Video size={16} className="text-primary" /> Property video</span><input type="file" accept="video/*" required onChange={(event) => setVideo(event.target.files?.[0] ?? null)} className="rounded-xl border border-dashed border-input bg-background px-3 py-3 text-sm font-normal" data-testid="input-listing-video" />{video && <span className="text-xs font-normal text-secondary">{video.name}</span>}</label></section><div className="flex items-start justify-between gap-4"><div className="flex items-start gap-2 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 shrink-0 text-secondary" size={16} />Your listing will be pending until RentFaster reviews it.</div><button disabled={uploading || create.isPending} className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground disabled:opacity-60">{uploading ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} {uploading ? 'Uploading…' : 'Submit for review'}</button></div></form></main></div>;
+}
+
 function NewListingPage() {
   const [, setLocation] = useLocation(); const create = useCreateListing(); const [notice, setNotice] = useState(''); const [form, setForm] = useState({ title: '', description: '', address: '', city: 'Accra', monthlyRentGhs: '', propertyType: 'Apartment', bedrooms: '2', bathrooms: '2', furnished: true, petFriendly: false, billsIncluded: false, photos: ['', '', ''], videoUrl: '', amenities: 'Backup power, Security, Water tank' }); const update = (key: string, value: string | boolean) => setForm((f) => ({ ...f, [key]: value }));
   const submit = (e: FormEvent) => { e.preventDefault(); if (form.photos.filter(Boolean).length < 3 || !form.videoUrl.trim()) { setNotice('Add exactly three photo links and a 30-second video URL before submitting.'); return; } create.mutate({ data: { title: form.title, description: form.description, address: form.address, city: form.city, monthlyRentGhs: Number(form.monthlyRentGhs), propertyType: form.propertyType, bedrooms: Number(form.bedrooms), bathrooms: Number(form.bathrooms), furnished: form.furnished, petFriendly: form.petFriendly, billsIncluded: form.billsIncluded, photos: form.photos, videoUrl: form.videoUrl, amenities: form.amenities.split(',').map((a) => a.trim()).filter(Boolean) } }, { onSuccess: () => setLocation('/landlord'), onError: () => setNotice('We could not submit this listing yet. Check your account and try again.') }); };
@@ -182,13 +371,13 @@ function Router() {
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/search" component={SearchPage} />
-        <Route path="/listing/:id" component={ListingDetailPage} />
-        <Route path="/login"><AuthPage mode="login" /></Route>
-        <Route path="/signup"><AuthPage mode="signup" /></Route>
-        <Route path="/tenant" component={TenantDashboard} />
-        <Route path="/landlord/new" component={NewListingPage} />
-        <Route path="/landlord" component={LandlordDashboard} />
-        <Route path="/admin" component={AdminDashboard} />
+        <Route path="/listing/:id" component={ConnectedListingDetailPage} />
+        <Route path="/login"><SupabaseAuthPage mode="login" /></Route>
+        <Route path="/signup"><SupabaseAuthPage mode="signup" /></Route>
+        <Route path="/tenant" component={TenantRoute} />
+        <Route path="/landlord/new" component={LandlordNewRoute} />
+        <Route path="/landlord" component={LandlordRoute} />
+        <Route path="/admin" component={AdminRoute} />
         <Route component={NotFound} />
       </Switch>
     </RoutedErrorBoundary>
@@ -204,9 +393,11 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router />
-        </WouterRouter>
+        <AuthProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+            <Router />
+          </WouterRouter>
+        </AuthProvider>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
