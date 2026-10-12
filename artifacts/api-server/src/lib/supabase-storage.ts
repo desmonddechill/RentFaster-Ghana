@@ -1,7 +1,7 @@
-const BUCKET = "listing-media";
+const BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? "listing-media";
 
 function storageConfig() {
-  const url = process.env.SUPABASE_URL;
+  const url = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceRoleKey) {
     throw new Error("Supabase Storage is not configured on the API server");

@@ -17,8 +17,8 @@ function bearerToken(req: Request) {
 
 export async function getSupabaseUser(req: Request): Promise<SupabaseUser | null> {
   const token = bearerToken(req);
-  const url = process.env.SUPABASE_URL;
-  const anonKey = process.env.SUPABASE_ANON_KEY;
+  const url = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL;
+  const anonKey = process.env.VITE_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
   if (!token || !url || !anonKey) return null;
 
   const response = await fetch(`${url.replace(/\/$/, "")}/auth/v1/user`, {

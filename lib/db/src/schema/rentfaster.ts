@@ -37,8 +37,9 @@ export const listingsTable = pgTable("listings", {
   photos: jsonb("photos").$type<string[]>().notNull().default([]),
   videoUrl: text("video_url").notNull(),
   amenities: jsonb("amenities").$type<string[]>().notNull().default([]),
-  status: text("status").notNull().default("pending"),
+  status: text("status").notNull().default("pending_approval"),
   featured: boolean("featured").notNull().default(false),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

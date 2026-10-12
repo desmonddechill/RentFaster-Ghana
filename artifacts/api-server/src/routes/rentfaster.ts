@@ -105,6 +105,7 @@ function mapListing(listing: typeof listingsTable.$inferSelect, landlord?: typeo
     amenities: (listing.amenities ?? []) as string[],
     status: listing.status,
     featured: listing.featured,
+    submittedAt: listing.submittedAt.toISOString(),
     landlordName: landlord?.name ?? "RentFaster verified landlord",
     landlordVerified: landlord?.verified ?? true,
     landlordPhone: landlord?.phone ?? "",
@@ -228,7 +229,8 @@ router.post("/listings", async (req, res): Promise<void> => {
     yearlyRentTotalGhs: String(rent * 12),
     yearlyCommissionTotalGhs: String(rent * 0.1 * 12),
     yearlyLandlordTotalGhs: String(rent * 0.9 * 12),
-    status: "pending",
+    status: "pending_approval",
+    submittedAt: new Date(),
   }).returning();
   res.status(201).json(mapListing(created, profile));
 });
@@ -256,7 +258,8 @@ router.patch("/listings/:listingId", async (req, res): Promise<void> => {
     yearlyRentTotalGhs: String(rent * 12),
     yearlyCommissionTotalGhs: String(rent * 0.1 * 12),
     yearlyLandlordTotalGhs: String(rent * 0.9 * 12),
-    status: "pending",
+    status: "pending_approval",
+    submittedAt: new Date(),
   }).where(and(eq(listingsTable.id, params.listingId), eq(listingsTable.landlordId, profile.id))).returning();
   if (!updated) {
     res.status(404).json({ error: "Listing not found" });
@@ -332,7 +335,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
     yearlyCommissionGhs: commission * 12,
     yearlyPayoutGhs: (monthlyRent - commission) * 12,
     activeListings: approved.length,
-    pendingListings: visibleListings.filter((listing) => listing.status === "pending").length,
+    pendingListings: visibleListings.filter((listing) => listing.status === "pending_approval" || listing.status === "pending").length,
     savedListings: 0,
     activeSubscriptions: subscriptions.filter((subscription) => subscription.status === "active").length,
   };

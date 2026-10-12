@@ -32,6 +32,7 @@ export interface Listing {
   amenities: string[];
   status: string;
   featured?: boolean;
+  submittedAt: Date;
   landlordName?: string;
   landlordVerified?: boolean;
   landlordPhone?: string;

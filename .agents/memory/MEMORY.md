@@ -1,0 +1,1 @@
+- [Rental marketplace currency](rental-currency.md) — display all RentFaster Ghana prices in GHS using the ₵ symbol.
