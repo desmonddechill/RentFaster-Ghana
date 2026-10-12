@@ -24,12 +24,6 @@ import { getCurrentProfile, getSupabaseUser, isRentFasterAdminEmail, requireRent
 import { ensureListingMediaBucket, uploadListingMedia } from "../lib/supabase-storage";
 
 const router: IRouter = Router();
-const GHANA_LISTING_PHOTOS = [
-  "https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1400&q=85",
-  "https://images.unsplash.com/photo-1600566753086-00f18fb6b3ea?auto=format&fit=crop&w=1400&q=85",
-  "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1400&q=85",
-];
-
 function roleFromBody(value: unknown): ProfileRole | undefined {
   return value === "tenant" || value === "landlord" || value === "admin" ? value : undefined;
 }
@@ -117,59 +111,7 @@ function mapListing(listing: typeof listingsTable.$inferSelect, landlord?: typeo
   };
 }
 
-async function ensureSeedData() {
-  const existing = await db.select({ id: listingsTable.id }).from(listingsTable).limit(1);
-  if (existing.length > 0) return;
-
-  const [landlord] = await db.insert(usersTable).values({
-    name: "Ama Owusu",
-    email: "ama@rentfaster.gh",
-    phone: "+233 24 555 0182",
-    role: "landlord",
-    verified: true,
-    city: "Accra",
-    paystackSubaccountCode: "ACCT_demo_rentfaster",
-  }).returning();
-
-  const seed = [
-    ["Sunlit Osu apartment", "A bright, secure apartment close to Oxford Street with reliable water and power.", "Osu, Accra", "Accra", 2200, "Apartment", 2, 2, true, true],
-    ["Quiet East Legon chamber & hall", "Spacious chamber and hall in a gated compound with a private compound garden.", "East Legon, Accra", "Accra", 1800, "Chamber & Hall", 1, 1, false, true],
-    ["Cantonments garden home", "A leafy, furnished home with fast access to schools, offices, and the airport.", "Cantonments, Accra", "Accra", 4200, "House", 3, 3, true, false],
-  ] as const;
-
-  await db.insert(listingsTable).values(seed.map((item, index) => {
-    const rent = item[4];
-    return {
-      landlordId: landlord.id,
-      title: item[0],
-      description: item[1],
-      address: item[2],
-      city: item[3],
-      lat: index === 0 ? "5.5571" : index === 1 ? "5.6345" : "5.5782",
-      lng: index === 0 ? "-0.1825" : index === 1 ? "-0.1683" : "-0.1720",
-      monthlyRentGhs: String(rent),
-      commissionRate: "10",
-      landlordPayoutMonthlyGhs: String(rent * 0.9),
-      yearlyRentTotalGhs: String(rent * 12),
-      yearlyCommissionTotalGhs: String(rent * 0.1 * 12),
-      yearlyLandlordTotalGhs: String(rent * 0.9 * 12),
-      propertyType: item[5],
-      bedrooms: item[6],
-      bathrooms: item[7],
-      furnished: item[8],
-      petFriendly: item[9],
-      billsIncluded: index === 1,
-      photos: GHANA_LISTING_PHOTOS,
-      videoUrl: "https://cdn.coverr.co/videos/coverr-a-woman-in-a-modern-apartment-1575/1080p.mp4",
-      amenities: ["24/7 security", "Water reservoir", "Parking", "Backup power"],
-      status: "approved",
-      featured: index !== 1,
-    };
-  }));
-}
-
 router.get("/listings", async (req, res): Promise<void> => {
-  await ensureSeedData();
   const query = ListListingsQueryParams.parse(req.query);
   const status = query.status ?? "approved";
   if (status !== "approved") {
@@ -193,14 +135,12 @@ router.get("/listings", async (req, res): Promise<void> => {
 });
 
 router.get("/listings/featured", async (_req, res): Promise<void> => {
-  await ensureSeedData();
   const rows = await db.select().from(listingsTable).where(and(eq(listingsTable.status, "approved"), eq(listingsTable.featured, true))).orderBy(desc(listingsTable.createdAt));
   const landlords = await db.select().from(usersTable);
   res.json(GetFeaturedListingsResponse.parse(rows.map((listing) => mapListing(listing, landlords.find((user) => user.id === listing.landlordId)))));
 });
 
 router.get("/listings/:listingId", async (req, res): Promise<void> => {
-  await ensureSeedData();
   const params = GetListingParams.parse(req.params);
   const [listing] = await db.select().from(listingsTable).where(eq(listingsTable.id, params.listingId));
   if (!listing) {
@@ -332,7 +272,6 @@ router.post("/inquiries", async (req, res): Promise<void> => {
 router.get("/dashboard/summary", async (req, res): Promise<void> => {
   const profile = await getCurrentProfile(req, res);
   if (!profile) return;
-  await ensureSeedData();
   const query = GetDashboardSummaryQueryParams.parse(req.query);
   if (query.role !== profile.role) {
     res.status(403).json({ error: "Dashboard role does not match the authenticated profile" });
@@ -365,7 +304,6 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
 router.get("/admin/listings", async (req, res): Promise<void> => {
   const admin = await requireRentFasterAdmin(req, res);
   if (!admin) return;
-  await ensureSeedData();
   const query = GetAdminListingsQueryParams.parse(req.query);
   const allListings = await db.select().from(listingsTable);
   const landlords = await db.select().from(usersTable);
