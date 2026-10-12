@@ -36,10 +36,51 @@ export interface Listing {
   status: string;
   featured?: boolean;
   submittedAt: string;
+  /** @nullable */
+  approvedAt?: string | null;
+  /** @nullable */
+  rejectionReason?: string | null;
   landlordName?: string;
   landlordVerified?: boolean;
   landlordPhone?: string;
   createdAt: string;
+}
+
+export type AdminListingStatus = typeof AdminListingStatus[keyof typeof AdminListingStatus];
+
+
+export const AdminListingStatus = {
+  pending_approval: 'pending_approval',
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
+export interface AdminListing {
+  id: string;
+  title: string;
+  address: string;
+  city: string;
+  monthlyRentGhs: number;
+  photos: string[];
+  status: AdminListingStatus;
+  /** @nullable */
+  landlordPhone: string | null;
+  submittedAt: string;
+  /** @nullable */
+  approvedAt: string | null;
+  /** @nullable */
+  rejectionReason: string | null;
+}
+
+export type AdminListingsResponseCounts = {
+  pending: number;
+  approved: number;
+  rejected: number;
+};
+
+export interface AdminListingsResponse {
+  counts: AdminListingsResponseCounts;
+  listings: AdminListing[];
 }
 
 export interface Review {
@@ -115,7 +156,11 @@ export const ReviewDecisionStatus = {
 
 export interface ReviewDecision {
   status: ReviewDecisionStatus;
-  note?: string;
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  reason?: string;
 }
 
 export interface DashboardSummary {
@@ -164,4 +209,17 @@ role?: string;
 export type GetDashboardSummaryParams = {
 role: string;
 };
+
+export type GetAdminListingsParams = {
+status: GetAdminListingsStatus;
+};
+
+export type GetAdminListingsStatus = typeof GetAdminListingsStatus[keyof typeof GetAdminListingsStatus];
+
+
+export const GetAdminListingsStatus = {
+  pending_approval: 'pending_approval',
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
 

@@ -20,7 +20,9 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AdminListingsResponse,
   DashboardSummary,
+  GetAdminListingsParams,
   GetDashboardSummaryParams,
   HealthStatus,
   Inquiry,
@@ -782,6 +784,90 @@ export function useGetDashboardSummary<TData = Awaited<ReturnType<typeof getDash
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetDashboardSummaryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetAdminListingsUrl = (params: GetAdminListingsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/listings?${stringifiedParams}` : `/api/admin/listings`
+}
+
+/**
+ * @summary List listings for the authorized administrator
+ */
+export const getAdminListings = async (params: GetAdminListingsParams, options?: Parameters<typeof customFetch>[1]): Promise<AdminListingsResponse> => {
+
+  return customFetch<AdminListingsResponse>(getGetAdminListingsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdminListingsQueryKey = (params?: GetAdminListingsParams,) => {
+    return [
+    `/api/admin/listings`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetAdminListingsQueryOptions = <TData = Awaited<ReturnType<typeof getAdminListings>>, TError = ErrorType<unknown>>(params: GetAdminListingsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminListings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdminListingsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdminListings>>> = ({ signal }) => getAdminListings(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdminListings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdminListingsQueryResult = NonNullable<Awaited<ReturnType<typeof getAdminListings>>>
+export type GetAdminListingsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List listings for the authorized administrator
+ */
+
+export function useGetAdminListings<TData = Awaited<ReturnType<typeof getAdminListings>>, TError = ErrorType<unknown>>(
+ params: GetAdminListingsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminListings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdminListingsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

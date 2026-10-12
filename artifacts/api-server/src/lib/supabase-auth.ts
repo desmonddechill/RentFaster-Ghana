@@ -10,6 +10,12 @@ export type SupabaseUser = {
 
 export type ProfileRole = "tenant" | "landlord" | "admin";
 
+export const RENTFASTER_ADMIN_EMAIL = "desmonddechill@gmail.com";
+
+export function isRentFasterAdminEmail(email?: string | null) {
+  return email?.trim().toLowerCase() === RENTFASTER_ADMIN_EMAIL;
+}
+
 function bearerToken(req: Request) {
   const header = req.header("authorization");
   return header?.startsWith("Bearer ") ? header.slice(7) : null;
@@ -40,6 +46,16 @@ export async function requireSupabaseUser(req: Request, res: Response) {
   return user;
 }
 
+export async function requireRentFasterAdmin(req: Request, res: Response) {
+  const user = await requireSupabaseUser(req, res);
+  if (!user) return null;
+  if (!isRentFasterAdminEmail(user.email)) {
+    res.status(403).json({ error: "Admin access is restricted" });
+    return null;
+  }
+  return user;
+}
+
 export async function syncUserProfile(user: SupabaseUser, requestedRole?: ProfileRole, requestedName?: string) {
   const metadata = user.user_metadata ?? {};
   const metadataRole = metadata.role === "landlord" ? "landlord" : "tenant";
@@ -48,7 +64,9 @@ export async function syncUserProfile(user: SupabaseUser, requestedRole?: Profil
   const [existing] = await db.select().from(usersTable).where(eq(usersTable.id, user.id));
 
   if (existing) {
-    const role = existing.role === "admin" ? "admin" : requestedRole ?? existing.role;
+    const role = isRentFasterAdminEmail(user.email)
+      ? "admin"
+      : requestedRole ?? (existing.role === "admin" ? metadataRole : existing.role);
     const [updated] = await db.update(usersTable).set({ email, name, role }).where(eq(usersTable.id, user.id)).returning();
     return updated;
   }
@@ -57,7 +75,7 @@ export async function syncUserProfile(user: SupabaseUser, requestedRole?: Profil
     id: user.id,
     email,
     name,
-    role: requestedRole ?? metadataRole,
+    role: isRentFasterAdminEmail(user.email) ? "admin" : requestedRole ?? metadataRole,
   }).returning();
   return created;
 }

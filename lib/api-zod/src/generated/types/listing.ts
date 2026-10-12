@@ -33,6 +33,10 @@ export interface Listing {
   status: string;
   featured?: boolean;
   submittedAt: Date;
+  /** @nullable */
+  approvedAt?: Date | null;
+  /** @nullable */
+  rejectionReason?: string | null;
   landlordName?: string;
   landlordVerified?: boolean;
   landlordPhone?: string;

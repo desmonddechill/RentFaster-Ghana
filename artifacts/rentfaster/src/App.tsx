@@ -16,8 +16,10 @@ import {
 } from 'wouter';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import AdminListingsPage from '@/components/admin-listings-page';
 
 const queryClient = new QueryClient();
+const RENTFASTER_ADMIN_EMAIL = 'desmonddechill@gmail.com';
 
 type Listing = {
   id: string; title: string; description?: string; address?: string; city: string; monthlyRentGhs: number;
@@ -266,7 +268,21 @@ function LandlordNewRoute() {
 }
 
 function AdminRoute() {
-  return <RoleGate role="admin"><AdminDashboard /></RoleGate>;
+  return <AdminEmailGate><AdminDashboard /></AdminEmailGate>;
+}
+
+function AdminEmailGate({ children }: { children: ReactNode }) {
+  const [, setLocation] = useLocation();
+  const { loading, session } = useAuth();
+  const isAdmin = session?.user.email?.trim().toLowerCase() === RENTFASTER_ADMIN_EMAIL;
+
+  useEffect(() => {
+    if (!loading && !isAdmin) setLocation('/');
+  }, [isAdmin, loading, setLocation]);
+
+  if (loading) return <div className="grid min-h-[100dvh] place-items-center bg-background"><Loader2 className="animate-spin text-primary" /></div>;
+  if (!isAdmin) return null;
+  return <>{children}</>;
 }
 
 function SupabaseNewListingPage() {
@@ -372,8 +388,7 @@ function NewListingPage() {
 }
 
 function AdminDashboard() {
-  const summaryQuery = useGetDashboardSummary({ role: 'admin' }, { query: { queryKey: getGetDashboardSummaryQueryKey({ role: 'admin' }) } }); const listingsQuery = useListListings({ status: 'pending_approval' }, { query: { queryKey: getListListingsQueryKey({ status: 'pending_approval' }) } }); const [items, setItems] = useState(mockListings.map((l) => ({ ...l, status: l.id === 'kumasi-ahodwo-03' ? 'pending_approval' : l.status }))); const [notice, setNotice] = useState(''); const pending = items.filter((l) => l.status === 'pending_approval'); const summary = summaryQuery.data as { monthlyCommissionGhs?: number; yearlyCommissionGhs?: number; activeListings?: number } | undefined;
-  return <DashboardShell role="admin" title="Operations room" subtitle="Keep the marketplace healthy and homes moving."><div className="grid gap-4 sm:grid-cols-3"><MetricCard label="MRR in GHS" value={money(summary?.monthlyCommissionGhs ?? 12480)} note="Marketplace service fees" icon={TrendingUp} /><MetricCard label="ARR in GHS" value={money(summary?.yearlyCommissionGhs ?? 149760)} note="Annualised run rate" icon={Landmark} tone="secondary" /><MetricCard label="Live inventory" value={String(summary?.activeListings ?? 42)} note="Across Ghana" icon={House} tone="accent" /></div><div className="mt-8 grid gap-6 lg:grid-cols-[1.3fr_.7fr]"><section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><p className="font-mono-brand text-[10px] uppercase tracking-[.18em] text-primary">Needs a decision</p><h2 className="mt-2 font-display text-2xl">Listing approval queue</h2></div><span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">{pending.length} pending</span></div><div className="mt-5 grid gap-3">{pending.length ? pending.map((l) => <div className="flex flex-col gap-4 rounded-xl border border-border p-4 sm:flex-row sm:items-center" key={l.id}><img src={l.photos[0]} alt="" className="h-20 w-full rounded-lg object-cover sm:w-24" /><div className="min-w-0 flex-1"><h3 className="truncate text-sm font-bold">{l.title}</h3><p className="mt-1 text-xs text-muted-foreground">{l.landlordName} · {l.city} · {money(l.monthlyRentGhs)} / month</p><p className="mt-2 flex items-center gap-1 text-xs text-secondary"><Video size={13} /> Video attached · {l.photos.length} photos</p></div><div className="flex gap-2"><button className="rounded-lg border border-destructive/30 px-3 py-2 text-xs font-bold text-destructive" onClick={() => { setItems((old) => old.map((x) => x.id === l.id ? { ...x, status: 'rejected' } : x)); setNotice(`${l.title} was rejected.`); }} data-testid={`button-reject-${l.id}`}>Reject</button><button className="rounded-lg bg-secondary px-3 py-2 text-xs font-bold text-secondary-foreground" onClick={() => { setItems((old) => old.map((x) => x.id === l.id ? { ...x, status: 'approved' } : x)); setNotice(`${l.title} is now live.`); }} data-testid={`button-approve-${l.id}`}>Approve</button></div></div>) : <div className="rounded-xl border border-dashed border-border p-8 text-center"><CircleCheck className="mx-auto text-secondary" size={26} /><p className="mt-3 font-display text-xl">The queue is clear.</p><p className="mt-1 text-sm text-muted-foreground">Every submitted home has been reviewed.</p></div>}</div>{notice && <div className="mt-4"><Notice onClose={() => setNotice('')}>{notice}</Notice></div>}</section><section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><h2 className="font-display text-2xl">Marketplace pulse</h2><p className="mt-1 text-sm text-muted-foreground">A quick read on today’s work.</p><div className="mt-6 grid gap-4">{[['Verified landlords', '86%', 'secondary'], ['Listings with video', '94%', 'primary'], ['Avg. review time', '18h', 'accent']].map(([label, value, tone]) => <div className="flex items-center justify-between rounded-xl bg-muted/60 p-4" key={label}><span className="text-sm font-semibold">{label}</span><span className={cx('font-mono-brand text-lg font-bold', tone === 'secondary' ? 'text-secondary' : tone === 'primary' ? 'text-primary' : 'text-ink')}>{value}</span></div>)}</div><div className="mt-7 rounded-xl bg-ink p-4 text-cream"><p className="font-mono-brand text-[10px] uppercase tracking-[.16em] text-accent">This month</p><p className="mt-2 font-display text-2xl">Good homes move quickly.</p><p className="mt-2 text-xs leading-5 text-cream/60">Keep review times low and tenants keep trust high.</p></div></section></div></DashboardShell>;
+  return <DashboardShell role="admin" title="Listing approvals" subtitle="Review submitted homes and record decisions."><AdminListingsPage /></DashboardShell>;
 }
 
 function Router() {

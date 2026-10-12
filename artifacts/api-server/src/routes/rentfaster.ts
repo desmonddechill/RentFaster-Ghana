@@ -1,10 +1,12 @@
 import { raw, Router, type IRouter } from "express";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { db, inquiriesTable, listingsTable, reviewsTable, subscriptionsTable, usersTable } from "@workspace/db";
 import {
   CreateInquiryBody,
   CreateListingBody,
   CreateSubscriptionBody,
+  GetAdminListingsQueryParams,
+  GetAdminListingsResponse,
   GetDashboardSummaryQueryParams,
   GetFeaturedListingsResponse,
   GetListingParams,
@@ -18,7 +20,7 @@ import {
   UpdateListingBody,
   UpdateListingParams,
 } from "@workspace/api-zod";
-import { getCurrentProfile, requireSupabaseUser, syncUserProfile, type ProfileRole } from "../lib/supabase-auth";
+import { getCurrentProfile, getSupabaseUser, isRentFasterAdminEmail, requireRentFasterAdmin, requireSupabaseUser, syncUserProfile, type ProfileRole } from "../lib/supabase-auth";
 import { ensureListingMediaBucket, uploadListingMedia } from "../lib/supabase-storage";
 
 const router: IRouter = Router();
@@ -106,6 +108,8 @@ function mapListing(listing: typeof listingsTable.$inferSelect, landlord?: typeo
     status: listing.status,
     featured: listing.featured,
     submittedAt: listing.submittedAt.toISOString(),
+    approvedAt: listing.approvedAt?.toISOString() ?? null,
+    rejectionReason: listing.rejectionReason,
     landlordName: landlord?.name ?? "RentFaster verified landlord",
     landlordVerified: landlord?.verified ?? true,
     landlordPhone: landlord?.phone ?? "",
@@ -167,7 +171,12 @@ async function ensureSeedData() {
 router.get("/listings", async (req, res): Promise<void> => {
   await ensureSeedData();
   const query = ListListingsQueryParams.parse(req.query);
-  const rows = await db.select().from(listingsTable).where(eq(listingsTable.status, query.status ?? "approved")).orderBy(desc(listingsTable.createdAt));
+  const status = query.status ?? "approved";
+  if (status !== "approved") {
+    const admin = await requireRentFasterAdmin(req, res);
+    if (!admin) return;
+  }
+  const rows = await db.select().from(listingsTable).where(eq(listingsTable.status, status)).orderBy(desc(listingsTable.createdAt));
   const filtered = rows.filter((listing) => {
     const rent = money(listing.monthlyRentGhs);
     return (!query.city || listing.city.toLowerCase() === query.city.toLowerCase())
@@ -197,6 +206,13 @@ router.get("/listings/:listingId", async (req, res): Promise<void> => {
   if (!listing) {
     res.status(404).json({ error: "Listing not found" });
     return;
+  }
+  if (listing.status !== "approved") {
+    const user = await getSupabaseUser(req);
+    if (!user || (user.id !== listing.landlordId && !isRentFasterAdminEmail(user.email))) {
+      res.status(404).json({ error: "Listing not found" });
+      return;
+    }
   }
   const [landlord] = await db.select().from(usersTable).where(eq(usersTable.id, listing.landlordId));
   const reviews = await db.select().from(reviewsTable).where(eq(reviewsTable.listingId, listing.id));
@@ -231,6 +247,8 @@ router.post("/listings", async (req, res): Promise<void> => {
     yearlyLandlordTotalGhs: String(rent * 0.9 * 12),
     status: "pending_approval",
     submittedAt: new Date(),
+    approvedAt: null,
+    rejectionReason: null,
   }).returning();
   res.status(201).json(mapListing(created, profile));
 });
@@ -260,6 +278,8 @@ router.patch("/listings/:listingId", async (req, res): Promise<void> => {
     yearlyLandlordTotalGhs: String(rent * 0.9 * 12),
     status: "pending_approval",
     submittedAt: new Date(),
+    approvedAt: null,
+    rejectionReason: null,
   }).where(and(eq(listingsTable.id, params.listingId), eq(listingsTable.landlordId, profile.id))).returning();
   if (!updated) {
     res.status(404).json({ error: "Listing not found" });
@@ -342,22 +362,77 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   res.json(summary);
 });
 
+router.get("/admin/listings", async (req, res): Promise<void> => {
+  const admin = await requireRentFasterAdmin(req, res);
+  if (!admin) return;
+  await ensureSeedData();
+  const query = GetAdminListingsQueryParams.parse(req.query);
+  const allListings = await db.select().from(listingsTable);
+  const landlords = await db.select().from(usersTable);
+  const isPending = (status: string) => status === "pending_approval" || status === "pending";
+  const selectedListings = allListings
+    .filter((listing) => query.status === "pending_approval"
+      ? isPending(listing.status)
+      : listing.status === query.status)
+    .sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
+  res.json(GetAdminListingsResponse.parse({
+    counts: {
+      pending: allListings.filter((listing) => isPending(listing.status)).length,
+      approved: allListings.filter((listing) => listing.status === "approved").length,
+      rejected: allListings.filter((listing) => listing.status === "rejected").length,
+    },
+    listings: selectedListings.map((listing) => {
+      const landlord = landlords.find((user) => user.id === listing.landlordId);
+      return {
+        id: listing.id,
+        title: listing.title,
+        address: listing.address,
+        city: listing.city,
+        monthlyRentGhs: money(listing.monthlyRentGhs),
+        photos: (listing.photos ?? []) as string[],
+        status: listing.status === "pending" ? "pending_approval" : listing.status,
+        landlordPhone: landlord?.phone ?? null,
+        submittedAt: listing.submittedAt.toISOString(),
+        approvedAt: listing.approvedAt?.toISOString() ?? null,
+        rejectionReason: listing.rejectionReason,
+      };
+    }),
+  }));
+});
+
 router.post("/admin/listings/:listingId/review", async (req, res): Promise<void> => {
-  const profile = await getCurrentProfile(req, res);
-  if (!profile) return;
-  if (profile.role !== "admin") {
-    res.status(403).json({ error: "Admin access required" });
-    return;
-  }
+  const admin = await requireRentFasterAdmin(req, res);
+  if (!admin) return;
   const params = ReviewListingParams.parse(req.params);
   const parsed = ReviewListingBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [listing] = await db.update(listingsTable).set({ status: parsed.data.status }).where(eq(listingsTable.id, params.listingId)).returning();
-  if (!listing) {
+  const rejectionReason = parsed.data.reason?.trim() ?? "";
+  if (parsed.data.status === "rejected" && !rejectionReason) {
+    res.status(400).json({ error: "A rejection reason is required" });
+    return;
+  }
+  const [existing] = await db.select().from(listingsTable).where(eq(listingsTable.id, params.listingId));
+  if (!existing) {
     res.status(404).json({ error: "Listing not found" });
+    return;
+  }
+  if (existing.status !== "pending_approval" && existing.status !== "pending") {
+    res.status(409).json({ error: "Only pending listings can be reviewed" });
+    return;
+  }
+  const [listing] = await db.update(listingsTable).set({
+    status: parsed.data.status,
+    approvedAt: parsed.data.status === "approved" ? new Date() : null,
+    rejectionReason: parsed.data.status === "rejected" ? rejectionReason : null,
+  }).where(and(
+    eq(listingsTable.id, params.listingId),
+    inArray(listingsTable.status, ["pending_approval", "pending"]),
+  )).returning();
+  if (!listing) {
+    res.status(409).json({ error: "This listing has already been reviewed" });
     return;
   }
   const [landlord] = await db.select().from(usersTable).where(eq(usersTable.id, listing.landlordId));

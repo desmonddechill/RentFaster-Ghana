@@ -40,6 +40,8 @@ export const listingsTable = pgTable("listings", {
   status: text("status").notNull().default("pending_approval"),
   featured: boolean("featured").notNull().default(false),
   submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  rejectionReason: text("rejection_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

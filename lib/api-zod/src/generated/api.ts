@@ -59,6 +59,8 @@ export const ListListingsResponseItem = zod.object({
   "status": zod.string(),
   "featured": zod.boolean().optional(),
   "submittedAt": zod.coerce.date(),
+  "approvedAt": zod.coerce.date().nullish(),
+  "rejectionReason": zod.string().nullish(),
   "landlordName": zod.string().optional(),
   "landlordVerified": zod.boolean().optional(),
   "landlordPhone": zod.string().optional(),
@@ -129,6 +131,8 @@ export const CreateListingResponse = zod.object({
   "status": zod.string(),
   "featured": zod.boolean().optional(),
   "submittedAt": zod.coerce.date(),
+  "approvedAt": zod.coerce.date().nullish(),
+  "rejectionReason": zod.string().nullish(),
   "landlordName": zod.string().optional(),
   "landlordVerified": zod.boolean().optional(),
   "landlordPhone": zod.string().optional(),
@@ -166,6 +170,8 @@ export const GetFeaturedListingsResponseItem = zod.object({
   "status": zod.string(),
   "featured": zod.boolean().optional(),
   "submittedAt": zod.coerce.date(),
+  "approvedAt": zod.coerce.date().nullish(),
+  "rejectionReason": zod.string().nullish(),
   "landlordName": zod.string().optional(),
   "landlordVerified": zod.boolean().optional(),
   "landlordPhone": zod.string().optional(),
@@ -212,6 +218,8 @@ export const GetListingResponse = zod.object({
   "status": zod.string(),
   "featured": zod.boolean().optional(),
   "submittedAt": zod.coerce.date(),
+  "approvedAt": zod.coerce.date().nullish(),
+  "rejectionReason": zod.string().nullish(),
   "landlordName": zod.string().optional(),
   "landlordVerified": zod.boolean().optional(),
   "landlordPhone": zod.string().optional(),
@@ -295,6 +303,8 @@ export const UpdateListingResponse = zod.object({
   "status": zod.string(),
   "featured": zod.boolean().optional(),
   "submittedAt": zod.coerce.date(),
+  "approvedAt": zod.coerce.date().nullish(),
+  "rejectionReason": zod.string().nullish(),
   "landlordName": zod.string().optional(),
   "landlordVerified": zod.boolean().optional(),
   "landlordPhone": zod.string().optional(),
@@ -359,13 +369,46 @@ export const GetDashboardSummaryResponse = zod.object({
 })
 
 
+/**
+ * @summary List listings for the authorized administrator
+ */
+export const GetAdminListingsQueryParams = zod.object({
+  "status": zod.enum(['pending_approval', 'approved', 'rejected'])
+})
+
+export const GetAdminListingsResponse = zod.object({
+  "counts": zod.object({
+  "pending": zod.number().int(),
+  "approved": zod.number().int(),
+  "rejected": zod.number().int()
+}),
+  "listings": zod.array(zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "address": zod.string(),
+  "city": zod.string(),
+  "monthlyRentGhs": zod.number(),
+  "photos": zod.array(zod.string()),
+  "status": zod.enum(['pending_approval', 'approved', 'rejected']),
+  "landlordPhone": zod.string().nullable(),
+  "submittedAt": zod.coerce.date(),
+  "approvedAt": zod.coerce.date().nullable(),
+  "rejectionReason": zod.string().nullable()
+}))
+})
+
+
 export const ReviewListingParams = zod.object({
   "listingId": zod.coerce.string()
 })
 
+export const reviewListingBodyReasonMax = 1000;
+
+
+
 export const ReviewListingBody = zod.object({
   "status": zod.enum(['approved', 'rejected']),
-  "note": zod.string().optional()
+  "reason": zod.string().min(1).max(reviewListingBodyReasonMax).optional()
 })
 
 export const ReviewListingResponse = zod.object({
@@ -395,6 +438,8 @@ export const ReviewListingResponse = zod.object({
   "status": zod.string(),
   "featured": zod.boolean().optional(),
   "submittedAt": zod.coerce.date(),
+  "approvedAt": zod.coerce.date().nullish(),
+  "rejectionReason": zod.string().nullish(),
   "landlordName": zod.string().optional(),
   "landlordVerified": zod.boolean().optional(),
   "landlordPhone": zod.string().optional(),

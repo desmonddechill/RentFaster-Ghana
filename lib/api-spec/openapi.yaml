@@ -159,6 +159,22 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DashboardSummary" }
+  /admin/listings:
+    get:
+      operationId: getAdminListings
+      tags: [listings]
+      summary: List listings for the authorized administrator
+      parameters:
+        - name: status
+          in: query
+          required: true
+          schema: { type: string, enum: [pending_approval, approved, rejected] }
+      responses:
+        "200":
+          description: Listings and counts for the review tabs
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminListingsResponse" }
   /admin/listings/{listingId}/review:
     post:
       operationId: reviewListing
@@ -238,10 +254,43 @@ components:
         status: { type: string }
         featured: { type: boolean }
         submittedAt: { type: string, format: date-time }
+        approvedAt: { type: ["string", "null"], format: date-time }
+        rejectionReason: { type: ["string", "null"] }
         landlordName: { type: string }
         landlordVerified: { type: boolean }
         landlordPhone: { type: string }
         createdAt: { type: string }
+    AdminListing:
+      type: object
+      required: [id, title, address, city, monthlyRentGhs, photos, status, landlordPhone, submittedAt, approvedAt, rejectionReason]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        address: { type: string }
+        city: { type: string }
+        monthlyRentGhs: { type: number }
+        photos:
+          type: array
+          items: { type: string }
+        status: { type: string, enum: [pending_approval, approved, rejected] }
+        landlordPhone: { type: ["string", "null"] }
+        submittedAt: { type: string, format: date-time }
+        approvedAt: { type: ["string", "null"], format: date-time }
+        rejectionReason: { type: ["string", "null"] }
+    AdminListingsResponse:
+      type: object
+      required: [counts, listings]
+      properties:
+        counts:
+          type: object
+          required: [pending, approved, rejected]
+          properties:
+            pending: { type: integer }
+            approved: { type: integer }
+            rejected: { type: integer }
+        listings:
+          type: array
+          items: { $ref: "#/components/schemas/AdminListing" }
     ListingDetail:
       allOf:
         - $ref: "#/components/schemas/Listing"
@@ -312,7 +361,7 @@ components:
       required: [status]
       properties:
         status: { type: string, enum: [approved, rejected] }
-        note: { type: string }
+        reason: { type: string, minLength: 1, maxLength: 1000 }
     DashboardSummary:
       type: object
       required: [role, monthlyRentGhs, monthlyCommissionGhs, monthlyPayoutGhs, yearlyRentGhs, yearlyCommissionGhs, yearlyPayoutGhs, activeListings, pendingListings, savedListings, activeSubscriptions]

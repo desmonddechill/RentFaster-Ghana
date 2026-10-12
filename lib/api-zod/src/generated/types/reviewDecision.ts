@@ -9,5 +9,9 @@ import type { ReviewDecisionStatus } from './reviewDecisionStatus';
 
 export interface ReviewDecision {
   status: ReviewDecisionStatus;
-  note?: string;
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  reason?: string;
 }
