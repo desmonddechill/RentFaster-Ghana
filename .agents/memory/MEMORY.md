@@ -1,1 +1,2 @@
 - [Rental marketplace currency](rental-currency.md) — display all RentFaster Ghana prices in GHS using the ₵ symbol.
+- [Listing visibility](listing-visibility.md) — public rental pages must use database-backed approved listings only; never fall back to sample homes.
